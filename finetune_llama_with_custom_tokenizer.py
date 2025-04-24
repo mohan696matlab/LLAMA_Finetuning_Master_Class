@@ -20,6 +20,7 @@ MAX_LENGTH = 256
 BATCH_SIZE = 4
 GRAD_ACCUMULATION_STEPS = 4
 MAX_STEPS=5000
+CONTINUE_FROM_CHECKPOINT = False
 
 
 bnb_config = BitsAndBytesConfig(
@@ -88,19 +89,24 @@ train_dataset = LlamaDataset(dataset['train'])
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 model = prepare_model_for_kbit_training(model)
-config = LoraConfig(
-    r=64,
-    lora_alpha=16,
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-    task_type="CAUSAL_LM",
-    lora_dropout=0.05,
-    bias="none",
-    inference_mode=False,
-    use_rslora=True,
-    init_lora_weights="gaussian",
-)
 
-model = get_peft_model(model, config)
+if CONTINUE_FROM_CHECKPOINT:
+    model = PeftModel.from_pretrained(model, LORA_ADAPTER_DIR, is_trainable=True) # Biggest change in this script
+    
+else:
+    config = LoraConfig(
+        r=64,
+        lora_alpha=16,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        task_type="CAUSAL_LM",
+        lora_dropout=0.05,
+        bias="none",
+        inference_mode=False,
+        use_rslora=True,
+        init_lora_weights="gaussian",
+    )
+
+    model = get_peft_model(model, config)
 
 # Keep the embedding and the Llama head trainable
 model.lm_head.weight.requires_grad = True
@@ -168,13 +174,16 @@ lr_scheduler = get_scheduler(
 
 # Path to your saved checkpoint
 save_path = OPTIMIZER_CKPT_DIR
-# Load checkpoint
-checkpoint = torch.load(save_path, map_location='cuda' if torch.cuda.is_available() else 'cpu') # Biggest chnage in this script
-# Restore model, optimizer, scheduler, and step
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
-global_step = checkpoint['global_step']
-print('>'*30,f"Checkpoint loaded from {save_path} at step {global_step}")
+
+if CONTINUE_FROM_CHECKPOINT:
+    # Load checkpoint
+    checkpoint = torch.load(save_path, map_location='cuda' if torch.cuda.is_available() else 'cpu') # Biggest chnage in this script
+    # Restore model, optimizer, scheduler, and step
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
+    global_step = checkpoint['global_step']
+
+    print('>'*30,f"Checkpoint loaded from {save_path} at step {global_step}")
 
 
 # Training loop

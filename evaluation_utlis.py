@@ -25,7 +25,7 @@ def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cu
 
     return question,pred_text,true_text
 
-def rouge_bleu_score(model,tokenizer,dataset,max_new_tokens=100,device='cuda'):
+def rouge_bleu_score(model,tokenizer,dataset,current_step,saving_path,max_new_tokens=100,device='cuda'):
 
     # Load metrics
     rouge = evaluate.load("rouge")
@@ -56,8 +56,8 @@ def rouge_bleu_score(model,tokenizer,dataset,max_new_tokens=100,device='cuda'):
     )
 
     result_bleu = bleu.compute(
-        predictions=[p.split() for p in pred_texts], 
-        references=[[t.split()] for t in true_texts]
+        predictions=pred_texts, 
+        references=true_texts, 
     )
 
     # Calculate average ROUGE score
@@ -70,8 +70,8 @@ def rouge_bleu_score(model,tokenizer,dataset,max_new_tokens=100,device='cuda'):
     output_lines.append(f"BLEU Score: {bleu_score:.4f}")
 
     # Save to a text file
-    with open("evaluation_results.txt", "w", encoding="utf-8") as f:
+    with open(f"{saving_path}/evaluation_results_{current_step}.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(output_lines))
 
-    print("✅ Evaluation results saved to `evaluation_results.txt`")
+    print(f"✅ Evaluation results saved to `evaluation_results_{current_step}.txt`")
     return {'rouge_score':avg_rouge_score, 'bleu_score':bleu_score}

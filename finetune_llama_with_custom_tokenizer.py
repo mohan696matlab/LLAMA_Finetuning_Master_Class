@@ -9,6 +9,7 @@ import gc
 import os
 from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
+from evaluation_utlis import rouge_bleu_score,get_prediction_per_sentence
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -19,6 +20,7 @@ OPTIMIZER_CKPT_DIR = '/home/nas/buffer/mohan.dash/llama_3_finetuned'
 MAX_LENGTH = 256
 BATCH_SIZE = 4
 GRAD_ACCUMULATION_STEPS = 4
+EVAL_STEPS=10
 MAX_STEPS=5000
 CONTINUE_FROM_CHECKPOINT = False
 
@@ -172,18 +174,23 @@ lr_scheduler = get_scheduler(
     num_training_steps=MAX_STEPS,
 )
 
-# Path to your saved checkpoint
-save_path = OPTIMIZER_CKPT_DIR
+
 
 if CONTINUE_FROM_CHECKPOINT:
     # Load checkpoint
-    checkpoint = torch.load(save_path, map_location='cuda' if torch.cuda.is_available() else 'cpu') # Biggest chnage in this script
+    checkpoint = torch.load(f'{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt', map_location=device) # Biggest chnage in this script
+    embedding_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/embedding_weights.pt", map_location=device)
+    lm_head_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/lm_head_weights.pt", map_location=device)
     # Restore model, optimizer, scheduler, and step
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
     global_step = checkpoint['global_step']
+    # Load the trained embeddings and LM head
+    model.model.model.embed_tokens.load_state_dict(embedding_state_dict)
+    model.lm_head.load_state_dict(lm_head_state_dict)
 
-    print('>'*30,f"Checkpoint loaded from {save_path} at step {global_step}")
+
+    print('>'*30,f"Checkpoint loaded from {OPTIMIZER_CKPT_DIR} at step {global_step}")
 
 
 # Training loop
@@ -195,7 +202,7 @@ while global_step< MAX_STEPS:
         model.train()
         
         # Forward pass
-        outputs = model(input_ids=batch['input_ids'].to('cuda'), attention_mask=batch['attention_mask'].to('cuda'), labels=batch['labels'].to('cuda'))
+        outputs = model(input_ids=batch['input_ids'].to(device), attention_mask=batch['attention_mask'].to(device), labels=batch['labels'].to(device))
         loss = outputs.loss
         loss = loss / GRAD_ACCUMULATION_STEPS  # Normalize loss
         loss.backward()
@@ -209,36 +216,27 @@ while global_step< MAX_STEPS:
         if global_step >= MAX_STEPS:
             break
         
-        if global_step % 20 == 0:
-            indices = [100, 200, 300, 400, 500]
-            all_preds = [f"Step: {global_step}, Loss: {loss.item():.4f}\n\n"]
-
-            for idx in indices:
-                pred = generate_eval(model=model, idx=idx, disable_lora=False)
-                pred_str = pred if isinstance(pred, str) else str(pred)
-                section = f"*************** IDX {idx} ***************\n{pred_str}\n"
-                all_preds.append(section)
-
-            # Join all sections and write to file
-            full_text = "\n" + "\n".join(all_preds)
-            pred_filename = os.path.join(OPTIMIZER_CKPT_DIR, f"{global_step}.txt")
-            with open(pred_filename, "w") as f:
-                f.write(full_text)
-
-            print('*' * 20, step + 1, '*' * 20)
-            print("Predictions saved to", pred_filename)
-            print('*' * 20, 'end', '*' * 20)
+        if global_step % EVAL_STEPS == 0:
+            llm_score = rouge_bleu_score(model,tokenizer,dataset['train'],
+                                         current_step=global_step,
+                                         saving_path=OPTIMIZER_CKPT_DIR,
+                                         max_new_tokens=100,
+                                         device=device)
+            
             
         if loss.item() < max_loss:
-            model.save_pretrained(LORA_ADAPTER_DIR)
             max_loss = loss.item()
             save_path = f"{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt"
-
-            torch.save({
-                'optimizer_state_dict': optimizer.state_dict(),
-                'lr_scheduler_state_dict': lr_scheduler.state_dict(),
-                'global_step': global_step
-            }, save_path)
+            
+            model.save_pretrained(LORA_ADAPTER_DIR)
+            # torch.save({
+            #     'optimizer_state_dict': optimizer.state_dict(),
+            #     'lr_scheduler_state_dict': lr_scheduler.state_dict(),
+            #     'global_step': global_step
+            # }, save_path)
+            
+            # torch.save(model.model.model.embed_tokens.state_dict(), f"{OPTIMIZER_CKPT_DIR}/embedding_weights.pt")
+            # torch.save(model.lm_head.state_dict(), f"{OPTIMIZER_CKPT_DIR}/lm_head_weights.pt")
             
             
             

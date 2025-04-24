@@ -13,6 +13,7 @@ from datasets import load_dataset
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 DEFAULT_MODEL = "/home/nas/buffer/mohan.dash/llama_3_2_3B"#"meta-llama/Llama-3.2-3B-Instruct","/home/nas/buffer/mohan.dash/llama_3_2_3B"
+TOKENIZER_PATH = "llama_odia_tokenizer"
 LORA_ADAPTER_DIR = '/home/nas/buffer/mohan.dash/llama_3_finetuned/adapter'
 OPTIMIZER_CKPT_DIR = '/home/nas/buffer/mohan.dash/llama_3_finetuned'
 MAX_LENGTH = 256
@@ -38,15 +39,11 @@ model = AutoModelForCausalLM.from_pretrained(
 
 print(model.get_memory_footprint()/(1024*1024)) 
 
-tokenizer = AutoTokenizer.from_pretrained(DEFAULT_MODEL, use_safetensors=True)
+tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, use_safetensors=True)
 tokenizer.pad_token_id = tokenizer.eos_token_id
 
-def flush():
-    torch.cuda.empty_cache()
-    gc.collect()
-    torch.cuda.empty_cache()
-    gc.collect()
-    
+# Resize the model's token embeddings to match the tokenizer's vocab size
+model.resize_token_embeddings(len(tokenizer))
     
 dataset = load_dataset('OdiaGenAI/odia_domain_context_train_v1')
 
@@ -105,7 +102,9 @@ config = LoraConfig(
 
 model = get_peft_model(model, config)
 
-
+# Keep the embedding and the Llama head trainable
+model.lm_head.weight.requires_grad = True
+model.model.model.embed_tokens.weight.requires_grad = True
 
 def generate_eval(model,idx=5,disable_lora=False):
     

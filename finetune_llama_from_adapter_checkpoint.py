@@ -12,7 +12,14 @@ from datasets import load_dataset
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-DEFAULT_MODEL = "meta-llama/Llama-3.2-3B-Instruct"#"meta-llama/Llama-3.2-3B-Instruct","/home/nas/buffer/mohan.dash/llama_3_2_3B"
+DEFAULT_MODEL = "/home/nas/buffer/mohan.dash/llama_3_2_3B"#"meta-llama/Llama-3.2-3B-Instruct","/home/nas/buffer/mohan.dash/llama_3_2_3B"
+LORA_ADAPTER_DIR = '/home/nas/buffer/mohan.dash/llama_3_finetuned/adapter'
+OPTIMIZER_CKPT_DIR = '/home/nas/buffer/mohan.dash/llama_3_finetuned'
+MAX_LENGTH = 256
+BATCH_SIZE = 4
+GRAD_ACCUMULATION_STEPS = 4
+MAX_STEPS=5000
+
 
 bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -57,7 +64,7 @@ class LlamaDataset(Dataset):
         prompt = f'''<|begin_of_text|> <|start_header_id|>user<|end_header_id|>\n\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'''
         full_text = prompt+f'''{answer}।<|eot_id|>'''
 
-        tokenized = tokenizer(full_text, truncation=True, add_special_tokens=False, padding="max_length", max_length=1000)
+        tokenized = tokenizer(full_text, truncation=True, add_special_tokens=False, padding="max_length", max_length=MAX_LENGTH)
 
         input_ids = tokenized["input_ids"]
         attention_mask = tokenized["attention_mask"]
@@ -81,10 +88,10 @@ class LlamaDataset(Dataset):
     }
         
 train_dataset = LlamaDataset(dataset['train'])
-train_dataloader = DataLoader(train_dataset, batch_size=2, shuffle=True)
+train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 model = prepare_model_for_kbit_training(model)
-model = PeftModel.from_pretrained(model, '/home/nas/buffer/mohan.dash/llama_3_finetuned/adapter', is_trainable=True) # Biggest chnage in this script
+model = PeftModel.from_pretrained(model, LORA_ADAPTER_DIR, is_trainable=True) # Biggest change in this script
 
 
 def generate_eval(model,idx=5,disable_lora=False):
@@ -104,8 +111,8 @@ def generate_eval(model,idx=5,disable_lora=False):
         with model.disable_adapter():
             output = model.generate(
                 **inputs,
-                do_sample=False,
-                max_new_tokens=300,
+                do_sample=True,
+                max_new_tokens=MAX_LENGTH,
                 repetition_penalty=1.3,
                 temperature=0.7,         # Optional: smooth randomness
                 top_k=50,                # Optional: top-k sampling
@@ -115,7 +122,7 @@ def generate_eval(model,idx=5,disable_lora=False):
         output = model.generate(
         **inputs,
         do_sample=True,
-        max_new_tokens=512,
+        max_new_tokens=MAX_LENGTH,
         repetition_penalty=1.3,
         temperature=0.7,         # Optional: smooth randomness
         top_k=50,                # Optional: top-k sampling
@@ -133,8 +140,7 @@ def generate_eval(model,idx=5,disable_lora=False):
 #########################################################################################################################
 model.config.use_cache = False
 model.config.pretraining_tp = 1
-gradient_accumulation_steps = 8
-max_steps=5000
+
 max_loss = 1e9
 global_step= 0
 
@@ -145,11 +151,11 @@ lr_scheduler = get_scheduler(
     name="linear",
     optimizer=optimizer,
     num_warmup_steps=0,
-    num_training_steps=max_steps,
+    num_training_steps=MAX_STEPS,
 )
 
 # Path to your saved checkpoint
-save_path = "/home/nas/buffer/mohan.dash/llama_3_finetuned/model_checkpoint.pt"
+save_path = OPTIMIZER_CKPT_DIR
 # Load checkpoint
 checkpoint = torch.load(save_path, map_location='cuda' if torch.cuda.is_available() else 'cpu') # Biggest chnage in this script
 # Restore model, optimizer, scheduler, and step
@@ -162,7 +168,7 @@ print('>'*30,f"Checkpoint loaded from {save_path} at step {global_step}")
 # Training loop
 model.train()
 
-while global_step< max_steps:
+while global_step< MAX_STEPS:
     for step,batch in enumerate(train_dataloader):
         model.config.use_cache = False
         model.train()
@@ -170,16 +176,16 @@ while global_step< max_steps:
         # Forward pass
         outputs = model(input_ids=batch['input_ids'].to('cuda'), attention_mask=batch['attention_mask'].to('cuda'), labels=batch['labels'].to('cuda'))
         loss = outputs.loss
-        loss = loss / gradient_accumulation_steps  # Normalize loss
+        loss = loss / GRAD_ACCUMULATION_STEPS  # Normalize loss
         loss.backward()
         
-        if (step + 1) % gradient_accumulation_steps == 0:
+        if (step + 1) % GRAD_ACCUMULATION_STEPS == 0:
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
         
         global_step += 1
-        if global_step >= max_steps:
+        if global_step >= MAX_STEPS:
             break
         
         if global_step % 20 == 0:
@@ -194,7 +200,7 @@ while global_step< max_steps:
 
             # Join all sections and write to file
             full_text = "\n" + "\n".join(all_preds)
-            pred_filename = os.path.join('/home/nas/buffer/mohan.dash/llama_3_finetuned', f"{global_step}.txt")
+            pred_filename = os.path.join(OPTIMIZER_CKPT_DIR, f"{global_step}.txt")
             with open(pred_filename, "w") as f:
                 f.write(full_text)
 
@@ -203,9 +209,9 @@ while global_step< max_steps:
             print('*' * 20, 'end', '*' * 20)
             
         if loss.item() < max_loss:
-            model.save_pretrained('/home/nas/buffer/mohan.dash/llama_3_finetuned/adapter')
+            model.save_pretrained(LORA_ADAPTER_DIR)
             max_loss = loss.item()
-            save_path = "/home/nas/buffer/mohan.dash/llama_3_finetuned/model_checkpoint.pt"
+            save_path = f"{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt"
 
             torch.save({
                 'optimizer_state_dict': optimizer.state_dict(),
@@ -216,4 +222,4 @@ while global_step< max_steps:
             
             
         
-        print(f"Epoch {global_step + 1}/{max_steps}, Loss: {loss.item():.4f}")
+        print(f"Epoch {global_step + 1}/{MAX_STEPS}, Loss: {loss.item():.4f}")

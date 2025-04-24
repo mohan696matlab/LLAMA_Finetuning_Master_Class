@@ -23,26 +23,55 @@ def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cu
 
     pred_text = tokenizer.decode(output[0][inputs.input_ids.shape[-1]:], skip_special_tokens=False)
 
-    return pred_text,true_text
+    return question,pred_text,true_text
 
 def rouge_bleu_score(model,tokenizer,dataset,max_new_tokens=100,device='cuda'):
-    # 1. Load the ROUGE metric and BLEU
+
+    # Load metrics
     rouge = evaluate.load("rouge")
     bleu = evaluate.load("bleu")
-    
-    pred_texts,true_texts=[],[]
-    for idx in [11,111,222,333,444]:
-        sample=dataset[idx]
-        pred_text,true_text = get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device=device)
+
+    # Store predictions and ground truths
+    pred_texts, true_texts = [], []
+    output_lines = []
+
+    # Collect examples
+    for idx in [11, 111, 222, 333, 444]:
+        sample = dataset[idx]
+        question, pred_text, true_text = get_prediction_per_sentence(model, tokenizer, sample, max_new_tokens, device=device)
         pred_texts.append(pred_text)
         true_texts.append(true_text)
-        
-    result_rouge = rouge.compute(predictions=pred_texts, 
-                                 references=true_texts,
-                                 tokenizer=lambda x: x.split(),  # Tokenize by whitespace only
-                                 )
-    result_bleu = bleu.compute(predictions=pred_texts, 
-                               references=true_texts,
-                               tokenizer=lambda x: x.split(),  # Tokenize by whitespace only
-                               )
-    return {'rouge_score':np.mean(list(result_rouge.values())), 'bleu_score':result_bleu['bleu']}
+
+        # Format the result for the output file
+        output_lines.append("=========================================")
+        output_lines.append(f"Question:\n{question}\n")
+        output_lines.append(f"Ground Truth:\n{true_text}\n")
+        output_lines.append(f"Prediction:\n{pred_text}\n")
+
+    # Compute metrics
+    result_rouge = rouge.compute(
+        predictions=pred_texts, 
+        references=true_texts, 
+        tokenizer=lambda x: x.split()
+    )
+
+    result_bleu = bleu.compute(
+        predictions=[p.split() for p in pred_texts], 
+        references=[[t.split()] for t in true_texts]
+    )
+
+    # Calculate average ROUGE score
+    avg_rouge_score = np.mean(list(result_rouge.values()))
+    bleu_score = result_bleu['bleu']
+
+    # Add metrics to output
+    output_lines.append("=========================================")
+    output_lines.append(f"ROUGE Score (avg): {avg_rouge_score:.4f}")
+    output_lines.append(f"BLEU Score: {bleu_score:.4f}")
+
+    # Save to a text file
+    with open("evaluation_results.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(output_lines))
+
+    print("✅ Evaluation results saved to `evaluation_results.txt`")
+    return {'rouge_score':avg_rouge_score, 'bleu_score':bleu_score}

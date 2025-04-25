@@ -93,6 +93,12 @@ train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True
 model = prepare_model_for_kbit_training(model)
 
 if CONTINUE_FROM_CHECKPOINT:
+    embedding_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/embedding_weights.pt", map_location=device)
+    lm_head_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/lm_head_weights.pt", map_location=device)
+    # Load the trained embeddings and LM head
+    model.model.embed_tokens.load_state_dict(embedding_state_dict)
+    model.lm_head.load_state_dict(lm_head_state_dict)
+    
     model = PeftModel.from_pretrained(model, LORA_ADAPTER_DIR, is_trainable=True) # Biggest change in this script
     
 else:
@@ -179,15 +185,12 @@ lr_scheduler = get_scheduler(
 if CONTINUE_FROM_CHECKPOINT:
     # Load checkpoint
     checkpoint = torch.load(f'{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt', map_location=device) # Biggest chnage in this script
-    embedding_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/embedding_weights.pt", map_location=device)
-    lm_head_state_dict = torch.load(f"{OPTIMIZER_CKPT_DIR}/lm_head_weights.pt", map_location=device)
+
     # Restore model, optimizer, scheduler, and step
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
     global_step = checkpoint['global_step']
-    # Load the trained embeddings and LM head
-    model.model.model.embed_tokens.load_state_dict(embedding_state_dict)
-    model.lm_head.load_state_dict(lm_head_state_dict)
+
 
 
     print('>'*30,f"Checkpoint loaded from {OPTIMIZER_CKPT_DIR} at step {global_step}")

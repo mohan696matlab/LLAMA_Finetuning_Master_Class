@@ -27,6 +27,8 @@ EVAL_STEPS=10
 MAX_STEPS=5000
 CONTINUE_FROM_CHECKPOINT = False
 
+os.makedirs(LORA_ADAPTER_DIR, exist_ok=True)
+
 
 def flush():
     torch.cuda.empty_cache()

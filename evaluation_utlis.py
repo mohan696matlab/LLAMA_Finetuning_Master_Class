@@ -7,7 +7,10 @@ def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cu
     model.config.use_cache = True
     question=sample['instruction']
     true_text = sample['output']
-    chat_template = f'''<|begin_of_text|> <|start_header_id|>user<|end_header_id|>\n\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'''
+    if model.config.model_type != 'gemma3':
+        chat_template = f'''<|begin_of_text|> <|start_header_id|>user<|end_header_id|>\n\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'''
+    else:
+        chat_template = f'''<bos><start_of_turn>user\n{question}<end_of_turn>\n<start_of_turn>model\n'''
     inputs = tokenizer(chat_template , return_tensors="pt", add_special_tokens=False).to(device)
 
     model.eval()

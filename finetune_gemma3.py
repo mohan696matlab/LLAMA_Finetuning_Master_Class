@@ -177,7 +177,7 @@ def generate_eval(model,idx=5):
     sample=dataset['train'][idx]
     question=sample['instruction']
     answer = sample['output']
-    chat_template = f'''<|begin_of_text|> <|start_header_id|>user<|end_header_id|>\n\n{question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'''
+    chat_template = f'''<bos><start_of_turn>user\n{question}<end_of_turn>\n<start_of_turn>model\n'''
     inputs = tokenizer(chat_template , return_tensors="pt").to(device)
  
     model.eval()

@@ -6,3 +6,5 @@ train_val_loss_plot.png
 adapter
 .vscode
 __pycache__
+runs
+__pycache__/evaluation_utlis.cpython-311.pyc

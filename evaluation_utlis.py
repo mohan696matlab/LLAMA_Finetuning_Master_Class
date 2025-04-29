@@ -1,5 +1,6 @@
 import evaluate
 import numpy as np
+from tqdm import tqdm
 
 def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cuda'):
     
@@ -13,7 +14,7 @@ def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cu
 
     output = model.generate(
     **inputs,
-    do_sample=False,
+    do_sample=True,
     max_new_tokens=max_new_tokens,
     repetition_penalty=1.3,
     temperature=0.7,         # Optional: smooth randomness
@@ -21,11 +22,11 @@ def get_prediction_per_sentence(model,tokenizer,sample,max_new_tokens,device='cu
     top_p=0.9                # Optional: nucleus sampling
     )
 
-    pred_text = tokenizer.decode(output[0][inputs.input_ids.shape[-1]:], skip_special_tokens=False)
+    pred_text = tokenizer.decode(output[0][inputs.input_ids.shape[-1]:], skip_special_tokens=True)
 
     return question,pred_text,true_text
 
-def rouge_bleu_score(model,tokenizer,dataset,current_step,saving_path,max_new_tokens=100,device='cuda'):
+def rouge_bleu_score(model,tokenizer,dataset,current_step,saving_path,loss,max_new_tokens=100,device='cuda'):
 
     # Load metrics
     rouge = evaluate.load("rouge")
@@ -36,7 +37,7 @@ def rouge_bleu_score(model,tokenizer,dataset,current_step,saving_path,max_new_to
     output_lines = []
 
     # Collect examples
-    for idx in [11, 111, 222, 333, 444]:
+    for idx in tqdm([11, 111, 222, 333, 444],total=5,leave=False):
         sample = dataset[idx]
         question, pred_text, true_text = get_prediction_per_sentence(model, tokenizer, sample, max_new_tokens, device=device)
         pred_texts.append(pred_text)
@@ -68,6 +69,7 @@ def rouge_bleu_score(model,tokenizer,dataset,current_step,saving_path,max_new_to
     output_lines.append("=========================================")
     output_lines.append(f"ROUGE Score (avg): {avg_rouge_score:.4f}")
     output_lines.append(f"BLEU Score: {bleu_score:.4f}")
+    output_lines.append(f"Loss: {loss:.5f}")
 
     # Save to a text file
     with open(f"{saving_path}/evaluation_results_{current_step}.txt", "w", encoding="utf-8") as f:

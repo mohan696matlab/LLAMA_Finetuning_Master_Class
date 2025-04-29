@@ -20,11 +20,12 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 DEFAULT_MODEL = "google/gemma-3-4b-it"#"meta-llama/Llama-3.2-3B-Instruct","/home/nas/buffer/mohan.dash/llama_3_2_3B"
 LORA_ADAPTER_DIR = 'runs/lora_adapter'
 OPTIMIZER_CKPT_DIR = 'runs'
-MAX_LENGTH = 256
-BATCH_SIZE = 1
-GRAD_ACCUMULATION_STEPS = 4
-EVAL_STEPS=10
-MAX_STEPS=5000
+MAX_LENGTH = 240
+BATCH_SIZE = 4
+LR = 2e-4
+GRAD_ACCUMULATION_STEPS = 8
+EVAL_STEPS=500
+MAX_STEPS=10000
 CONTINUE_FROM_CHECKPOINT = False
 
 os.makedirs(LORA_ADAPTER_DIR, exist_ok=True)
@@ -41,7 +42,7 @@ def print_gpu_utilization():
     print(f"GPU Memory Usage>>>> Allocated: {allocated:.2f} MB |||||  Reserved:  {reserved:.2f} MB:")   
  
 
-
+flush()
 
 bnb_config = BitsAndBytesConfig(
                                 load_in_4bit=True,
@@ -139,14 +140,14 @@ test_dataset = GemmaDataset(test_data)
 # DataLoaders with custom collate_fn
 train_dataloader = DataLoader(
     train_dataset,
-    batch_size=2,
+    batch_size=BATCH_SIZE,
     shuffle=True,
     collate_fn=gemma_collate_fn
 )
 
 test_dataloader = DataLoader(
     test_dataset,
-    batch_size=2,
+    batch_size=BATCH_SIZE,
     shuffle=False,
     collate_fn=gemma_collate_fn
 )
@@ -249,11 +250,11 @@ loss_buffer=[]
 
 
 # Define optimizer
-optimizer = PagedAdam32bit(model.parameters(), lr=2e-4)
+optimizer = PagedAdam32bit(model.parameters(), lr=LR)
 lr_scheduler = get_scheduler(
     name="linear",
     optimizer=optimizer,
-    num_warmup_steps=int(0.1 * MAX_STEPS),
+    num_warmup_steps=500,
     num_training_steps=MAX_STEPS,
 )
 

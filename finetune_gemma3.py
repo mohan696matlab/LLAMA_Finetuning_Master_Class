@@ -22,11 +22,11 @@ LORA_ADAPTER_DIR = 'runs/lora_adapter'
 OPTIMIZER_CKPT_DIR = 'runs'
 MAX_LENGTH = 240
 BATCH_SIZE = 4
-LR = 2e-4
+LR = 1e-4
 GRAD_ACCUMULATION_STEPS = 8
 EVAL_STEPS=500
-MAX_STEPS=10000
-CONTINUE_FROM_CHECKPOINT = False
+MAX_STEPS=20000
+CONTINUE_FROM_CHECKPOINT = True
 
 os.makedirs(LORA_ADAPTER_DIR, exist_ok=True)
 
@@ -152,9 +152,11 @@ test_dataloader = DataLoader(
     collate_fn=gemma_collate_fn
 )
 
-
-
-config = LoraConfig(
+if CONTINUE_FROM_CHECKPOINT:
+    model = PeftModel.from_pretrained(model, LORA_ADAPTER_DIR, is_trainable=True) # Biggest change in this script
+    
+else:
+    config = LoraConfig(
     r=16,
     lora_alpha=16,
     target_modules="all-linear",
@@ -166,7 +168,9 @@ config = LoraConfig(
     init_lora_weights="gaussian",
 )
 
-model = get_peft_model(model, config)
+    model = get_peft_model(model, config)
+
+
 model.print_trainable_parameters()
 print_gpu_utilization()
 
@@ -250,7 +254,8 @@ loss_buffer=[]
 
 
 # Define optimizer
-optimizer = PagedAdam32bit(model.parameters(), lr=LR)
+params_to_optimize = list(filter(lambda p: p.requires_grad, model.parameters()))
+optimizer = Adam8bit(params_to_optimize, lr=LR)
 lr_scheduler = get_scheduler(
     name="linear",
     optimizer=optimizer,
@@ -258,18 +263,18 @@ lr_scheduler = get_scheduler(
     num_training_steps=MAX_STEPS,
 )
 
-if CONTINUE_FROM_CHECKPOINT:
-    # Load checkpoint
-    checkpoint = torch.load(f'{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt', map_location=device) # Biggest chnage in this script
+# if CONTINUE_FROM_CHECKPOINT:
+#     # Load checkpoint
+#     checkpoint = torch.load(f'{OPTIMIZER_CKPT_DIR}/model_checkpoint.pt', map_location=device) # Biggest chnage in this script
 
-    # Restore model, optimizer, scheduler, and step
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
-    global_step = checkpoint['global_step']
+    # # Restore model, optimizer, scheduler, and step
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
+    # global_step = checkpoint['global_step']
 
 
 
-    print('>'*30,f"Checkpoint loaded from {OPTIMIZER_CKPT_DIR} at step {global_step}")
+    # print('>'*30,f"Checkpoint loaded from {OPTIMIZER_CKPT_DIR} at step {global_step}")
 
 
 # Training loop

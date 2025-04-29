@@ -172,6 +172,7 @@ global_step= 0
 
 
 # Define optimizer
+
 optimizer = PagedAdam32bit(model.parameters(), lr=2e-4)
 lr_scheduler = get_scheduler(
     name="linear",
